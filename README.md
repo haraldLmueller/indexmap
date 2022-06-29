@@ -1,17 +1,18 @@
 # IndexMap
 
-This is a fork of github.com/yah01/indexmap. So many thanks to yah01 from Shanghai.  
-While the base from yah01 is working very well, we need that fully thread safe and that was extend by Harald Mueller.
+This is a fork from github.com/yah01/indexmap. So many thanks to yah01 from Shanghai.  
+Although the base from yah01 is working very well, it wasn't a full thread safe version.
+The base version was extended by Harald Mueller.
 
-We often created a map with $ID \to Object$ to seek data, but this limits us to seek the data with only ID. to seek data with any field without SQL in database, IndexMap is the data structure you can reach this.
+A map (hash table) is often created with $ID \to Object$ to search for data (structured in tables). The map-type but is limited to search for data using only an ID. In order to search data using any field without a SQL database. The IndexMap data structure can achieve it
 
 ## Installation
-To get the IndexMap package:
+Get the IndexMap package:
 ```shell
 go get -u "github.com/haraldLmueller/indexmap"
 ```
 
-Import the package:
+Import the IndexMap package:
 ```golang
 import "github.com/haraldLmueller/indexmap"
 ```
@@ -32,15 +33,15 @@ persons := indexmap.NewIndexMap(indexmap.NewPrimaryIndex(func(value *Person) int
 }))
 ```
 
-Now it's just like the common map type, but then you can add index to seek person with the other field:
+Now, it works just like the common map type with the possibility of adding an index to search for a person using another field:
 ```golang
 persons.AddIndex("name", indexmap.NewSecondaryIndex(func(value *Person) []any {
     return []any{value.Name}
 }))
 ```
-You have to provide the way to extract keys for the inserted object, all keys must be comparable.
+It must provide a way to extract keys for the inserted objects, all keys must be comparable.
 
-The insertion updates indexes automatically:
+The insertion, updates all indexes automatically:
 ```golang
 ashe := &Person{
     ID:   1,
@@ -84,7 +85,7 @@ persons.AddIndex("like", indexmap.NewSecondaryIndex(func(value *Person) []any {
 }))
 ```
 
-And seek data with primary index or the added index:
+And search for data using the primary index or an added index:
 ```golang
 fmt.Println("Search with ID or Name:")
 fmt.Printf("%+v\n", persons.Get(ashe.ID))
@@ -120,7 +121,7 @@ Search persons like Bob
 [API Reference](https://pkg.go.dev/github.com/haraldLmueller/indexmap)
 
 ### Update Value
-Inserting the different values with the same key works like the normal map type, the last one overwrites the others, but for a inserted value, modifing it outside may confuse the index, modify an internal value with `Update()/UpdateBy()`:
+Inserting different values using the same key, works like the normal map type. The last one overwrites the value, but for an inserted value modifying it from the outside may confuse the index. It must modify an internal value using `Update()/UpdateBy()`:
 ```golang
 // DO NOT:
 person := persons.GetBy("name", "Ashe")
@@ -138,7 +139,7 @@ persons.UpdateBy("name", "Ashe", func(value *Person) (*Person, bool) {
 ```
 
 ### Serialize & Deserialize
-You can serialize an IndexMap to JSON, the result is the same as serializing a normal map type, doesn't contain the index information, so you can't recover the indexes from that:
+An IndexMap can be serialized to JSON, the result is the same as serializing a normal map type. It doesn't contain the index information, resulting in an unrecoverable map (indexes cannot be recovered):
 ```golang
 // Serialize
 imapData, err := json.Marshal(imap)
@@ -153,7 +154,7 @@ err := json.Unmarshal(imapData, &imap)
 ```
 
 ### Iterate
-Like sync.Map, you can iterate the IndexMap with `Range()` method:
+As well as sync.Map, IndexMap can iterate using the `Range()` method:
 ```golang
 imap.Range(func(key int64, value *Person) bool {
     fmt.Printf("key=%v, value=%+v\n", key, value)
@@ -161,7 +162,7 @@ imap.Range(func(key int64, value *Person) bool {
 })
 ```
 
-An useful method to get all keys and values:
+Additionally, a useful method to get all keys and values:
 ```golang
 keys, values := imap.Collect()
 ```
