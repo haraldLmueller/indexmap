@@ -1,6 +1,5 @@
 package indexmap
 
-
 type PrimaryIndex[K comparable, V any] struct {
 	extractField func(value *V) K
 
@@ -78,6 +77,9 @@ func (index *SecondaryIndex[V]) remove(elem *V) {
 		elems, ok := index.inner[keys[i]]
 		if ok {
 			elems.Remove(elem)
+		}
+		if len(index.inner[keys[i]]) == 0 {
+			delete(index.inner, keys[i])
 		}
 	}
 }

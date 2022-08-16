@@ -70,4 +70,9 @@ func TestSecondaryIndex(t *testing.T) {
 	result = index.get(persons[0].Name)
 	assert.Equal(t, 1, len(result))
 	assert.Contains(t, result, persons[0])
+
+	index.remove(persons[0])
+	_, ok := index.inner[persons[0].Name]
+	assert.False(t, ok)
+
 }
