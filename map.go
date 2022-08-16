@@ -142,9 +142,9 @@ func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
 		imap.remove(key)
 	}
 
-	new, modified := updateFn(old)
-	if modified && new != nil {
-		imap.insert(new)
+	newV, modified := updateFn(old)
+	if modified && newV != nil {
+		imap.insert(newV)
 	}
 }
 
@@ -165,9 +165,9 @@ func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateF
 	imap.removeValues(oldValues...)
 
 	for _, old := range oldValues {
-		new, modified := updateFn(old)
-		if modified && new != nil {
-			imap.insert(new)
+		newV, modified := updateFn(old)
+		if modified && newV != nil {
+			imap.insert(newV)
 		}
 	}
 }
@@ -235,10 +235,10 @@ func (imap *IndexMap[K, V]) Clear() {
 	}
 }
 
-// Iterate all the elements,
-// stop iteration if fn returns false,
+// Range iterates over all the elements,
+// stops iteration if fn returns false,
 // no any guarantee to the order.
-// don't use modifying calls to this indexmap while the Range is nunning
+// don't use modifying calls to this indexmap while the Range is running
 // that may cause dead locks.
 func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 	imap.lock.RLock()
@@ -251,7 +251,28 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 	}
 }
 
-// Return all the keys and values.
+// RangeBy iterates over the map by a given index
+// fn must not attempt modifying the IndexMap, or else it will deadlock
+func (imap *IndexMap[K, V]) RangeBy(indexName string, fn func(key any, values []*V) bool) {
+	imap.lock.RLock()
+	defer imap.lock.RUnlock()
+	imap.rangeByLocked(indexName, fn)
+}
+func (imap *IndexMap[K, V]) rangeByLocked(indexName string, fn func(key any, values []*V) bool) {
+	index, ok := imap.indexes[indexName]
+	if !ok {
+		return
+	}
+
+	for k, vs := range index.inner {
+		if !fn(k, vs.Collect()) {
+			return
+		}
+	}
+
+}
+
+// Collect returns all the keys and values.
 func (imap *IndexMap[K, V]) Collect() ([]K, []*V) {
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
@@ -265,6 +286,23 @@ func (imap *IndexMap[K, V]) Collect() ([]K, []*V) {
 		values = append(values, v)
 	}
 
+	return keys, values
+}
+
+// CollectBy returns all the keys and values as indexed by indexName.
+func (imap *IndexMap[K, V]) CollectBy(indexName string) ([]any, [][]*V) {
+	imap.lock.RLock()
+	defer imap.lock.RUnlock()
+
+	var (
+		keys   = make([]any, 0)
+		values = make([][]*V, 0)
+	)
+	imap.rangeByLocked(indexName, func(k any, vs []*V) bool {
+		keys = append(keys, k)
+		values = append(values, vs)
+		return true
+	})
 	return keys, values
 }
 
