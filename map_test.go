@@ -150,6 +150,41 @@ func TestAddExistedIndex(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestCollectKeysSorted(t *testing.T) {
+	imap := NewIndexMap(NewPrimaryIndex(func(value *Person) int64 {
+		return value.ID
+	}))
+	persons := GenPersons()
+	InsertData(imap, persons)
+	assert.Equal(t, []int64{0, 1, 2}, imap.CollectKeysSorted())
+
+	imap.Insert(&Person{7, "Alex", 40, "Boat", []string{"Bob", "Ashe"}})
+	assert.Equal(t, []int64{0, 1, 2, 7}, imap.CollectKeysSorted())
+	imap.Insert(&Person{5, "Harald", 40, "Nürnberg", []string{"Bob", "Alex"}})
+	assert.Equal(t, []int64{0, 1, 2, 5, 7}, imap.CollectKeysSorted())
+}
+func TestCollectKeysSortedString(t *testing.T) {
+	imap := NewIndexMap(NewPrimaryIndex(func(value *Person) string {
+		return value.Name
+	}))
+	imap.Insert(&Person{0, "Ashe", 38, "San Francisco", []string{"Bob", "Cassidy"}})
+	imap.Insert(&Person{1, "Bob", 18, "San Francisco", nil})
+	imap.Insert(&Person{2, "Cassidy", 40, "Shanghai", []string{"Bob", "Ashe"}})
+	assert.Equal(t, []string{"Ashe", "Bob", "Cassidy"}, imap.CollectKeysSorted())
+
+	imap.Insert(&Person{7, "Alex", 40, "Boat", []string{"Bob", "Ashe"}})
+	imap.Insert(&Person{5, "Harald", 40, "Nürnberg", []string{"Bob", "Alex"}})
+	assert.Equal(t, []string{"Alex", "Ashe", "Bob", "Cassidy", "Harald"}, imap.CollectKeysSorted())
+
+	// now Update the key
+	imap.Update("Harald", func(value *Person) (*Person, bool) {
+		value.Name = "Ben"
+		return value, true
+	})
+	assert.Equal(t, []string{"Alex", "Ashe", "Ben", "Bob", "Cassidy"}, imap.CollectKeysSorted())
+
+}
+
 func BenchmarkInsertOnlyPrimaryInt(b *testing.B) {
 	n := len(names)
 	rand.Seed(123)
