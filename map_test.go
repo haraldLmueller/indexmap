@@ -3,6 +3,7 @@ package indexmap
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -94,7 +95,17 @@ func TestIndexMap(t *testing.T) {
 	// CollectBy
 	ks, vs := imap.CollectBy(CityIndex)
 	for i := range ks {
-		assert.Equal(t, vs[i], imap.GetAllBy(CityIndex, ks[i]))
+		exp := vs[i]
+		sort.SliceStable(exp, func(k, j int) bool {
+			return exp[k].ID < exp[j].ID
+		})
+
+		act := imap.GetAllBy(CityIndex, ks[i])
+		sort.SliceStable(act, func(k, j int) bool {
+			return act[k].ID < act[j].ID
+		})
+
+		assert.Equal(t, exp, act)
 	}
 
 	// Range
@@ -110,7 +121,14 @@ func TestIndexMap(t *testing.T) {
 	count = 0
 	imap.RangeBy(CityIndex, func(key any, vals []*Person) bool {
 		count++
-		assert.Equal(t, imap.indexes[CityIndex].inner[key].Collect(), vals)
+		exp := imap.indexes[CityIndex].inner[key].Collect()
+		sort.SliceStable(exp, func(i, j int) bool {
+			return exp[i].ID < exp[j].ID
+		})
+		sort.SliceStable(vals, func(i, j int) bool {
+			return vals[i].ID < vals[j].ID
+		})
+		assert.Equal(t, exp, vals)
 		return true
 	})
 	assert.Equal(t, len(imap.indexes[CityIndex].inner), count)
