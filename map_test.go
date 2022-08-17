@@ -278,3 +278,40 @@ func FuzzAddSecondaryIndex(f *testing.F) {
 		assert.Equal(t, uniqName, ret[0].Name)
 	})
 }
+
+func TestUpdatePerson(t *testing.T) {
+	imap := NewIndexMap(NewPrimaryIndex(func(value *Person) int64 {
+		return value.ID
+	}))
+
+	ok := imap.AddIndex(NameIndex, NewSecondaryIndex(func(value *Person) []any {
+		return []any{value.Name}
+	}))
+	assert.True(t, ok, "create name index")
+	ok = imap.AddIndex("age", NewSecondaryIndex(func(value *Person) []any {
+		return []any{value.Age}
+	}))
+	assert.True(t, ok, "create Age index")
+	imap.AddIndex("like", NewSecondaryIndex(func(value *Person) []any {
+		like := make([]any, 0, len(value.Like))
+		for i := range value.Like {
+			like = append(like, value.Like[i])
+		}
+		return like
+	}))
+	assert.True(t, ok)
+
+	persons := GenPersons()
+	InsertData(imap, persons)
+
+	bob := imap.GetBy(NameIndex, "Bob")
+	bob.Like = append(bob.Like, "Ashe")
+	imap.Update(bob.ID, func(value *Person) (*Person, bool) {
+		value.Like = append(value.Like, "Ashe")
+		return value, true
+	})
+
+	likeGroup := imap.GetAllBy("like", "Ashe")
+	assert.Equal(t, 2, len(likeGroup))
+
+}
