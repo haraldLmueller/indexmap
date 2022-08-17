@@ -3,6 +3,7 @@ package indexmap
 import (
 	"fmt"
 	"math/rand"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -91,6 +92,22 @@ func TestIndexMap(t *testing.T) {
 		assert.Equal(t, values[i], imap.Get(keys[i]))
 	}
 
+	// CollectBy
+	ks, vs := imap.CollectBy(CityIndex)
+	for i := range ks {
+		exp := vs[i]
+		sort.SliceStable(exp, func(k, j int) bool {
+			return exp[k].ID < exp[j].ID
+		})
+
+		act := imap.GetAllBy(CityIndex, ks[i])
+		sort.SliceStable(act, func(k, j int) bool {
+			return act[k].ID < act[j].ID
+		})
+
+		assert.Equal(t, exp, act)
+	}
+
 	// Range
 	count = 0
 	imap.Range(func(key int64, value *Person) bool {
@@ -99,6 +116,22 @@ func TestIndexMap(t *testing.T) {
 		return true
 	})
 	assert.Equal(t, imap.Len(), count)
+
+	// RangeBy
+	count = 0
+	imap.RangeBy(CityIndex, func(key any, vals []*Person) bool {
+		count++
+		exp := imap.indexes[CityIndex].inner[key].Collect()
+		sort.SliceStable(exp, func(i, j int) bool {
+			return exp[i].ID < exp[j].ID
+		})
+		sort.SliceStable(vals, func(i, j int) bool {
+			return vals[i].ID < vals[j].ID
+		})
+		assert.Equal(t, exp, vals)
+		return true
+	})
+	assert.Equal(t, len(imap.indexes[CityIndex].inner), count)
 }
 
 func TestAddExistedIndex(t *testing.T) {
@@ -202,7 +235,7 @@ func FuzzAddSecondaryIndex(f *testing.F) {
 	f.Add("John", "Doh", 34)
 	f.Fuzz(func(t *testing.T, first string, city string, age int) {
 		atomic.AddInt64(&i, 1)
-		uniqName := fmt.Sprintf("%s-%d",first,i)
+		uniqName := fmt.Sprintf("%s-%d", first, i)
 		pi := i
 		imap.Insert(&Person{pi, uniqName, age, city, nil})
 		ret := imap.GetAllBy("name", uniqName)
