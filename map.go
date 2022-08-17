@@ -155,7 +155,7 @@ func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
 
 	newV, modified := updateFn(old)
 	if modified && newV != nil {
-		sortAffected = (imap.primaryIndex.extractField(newV) != key) || sortAffected
+		sortAffected = sortAffected || (imap.primaryIndex.extractField(newV) != key)
 		imap.insert(newV)
 	}
 	if sortAffected {
