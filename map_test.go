@@ -150,6 +150,14 @@ func TestAddExistedIndex(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestIndexMap_PrimaryKey(t *testing.T) {
+	imap := NewIndexMap(NewPrimaryIndex(func(value *Person) int64 {
+		return value.ID
+	}))
+	p := GenPersons()[0]
+	assert.Equal(t, p.ID, imap.PrimaryKey(p))
+}
+
 func BenchmarkInsertOnlyPrimaryInt(b *testing.B) {
 	n := len(names)
 	rand.Seed(123)
