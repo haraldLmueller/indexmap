@@ -52,6 +52,11 @@ func (imap *IndexMap[K, V]) Get(key K) *V {
 	return imap.primaryIndex.get(key)
 }
 
+// PrimaryKey calculates the primary key of given value as defined by the IndexMap's PrimaryIndex
+func (imap *IndexMap[K, V]) PrimaryKey(v *V) K {
+	return imap.primaryIndex.extractField(v)
+}
+
 // Return one of the values for the given secondary key,
 // No guarantee for which one is returned if more than one elements indexed by the key.
 func (imap *IndexMap[K, V]) GetBy(indexName string, key any) *V {
