@@ -193,7 +193,6 @@ func BenchmarkParallelInsertMonlyPrimaryInt(b *testing.B) {
 
 func BenchmarkNativeMap(b *testing.B) {
 	n := len(names)
-	rand.Seed(123)
 	imap := make(map[int64]*Person)
 	for i := 0; i < b.N; i++ {
 		pi := int64(i)
