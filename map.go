@@ -131,7 +131,7 @@ func (imap *IndexMap[K, V]) insert(values ...*V) {
 
 // An UpdateFn modifies the given value,
 // and returns the modified value, they could be the same object,
-// true if the object is modified,
+// true if the object is modified ,
 // false otherwise
 type UpdateFn[V any] func(value *V) (*V, bool)
 
@@ -147,8 +147,8 @@ func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
 		imap.remove(key)
 	}
 
-	newV, modified := updateFn(old)
-	if modified && newV != nil {
+	newV, _ := updateFn(old)
+	if newV != nil {
 		imap.insert(newV)
 	}
 }
@@ -170,8 +170,8 @@ func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateF
 	imap.removeValues(oldValues...)
 
 	for _, old := range oldValues {
-		newV, modified := updateFn(old)
-		if modified && newV != nil {
+		newV, _ := updateFn(old)
+		if newV != nil {
 			imap.insert(newV)
 		}
 	}
