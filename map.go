@@ -336,7 +336,13 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 
 func (imap *IndexMap[K, V]) checkSortedForUpdate() {
 	if imap.sorter.dirty {
-		imap.sorter.sorted = imap.CollectValues()
+		// reuse he underlying array, slice the slice to zero length
+		// due to performance
+		imap.sorter.sorted = imap.sorter.sorted[:0]
+		for _, v := range imap.primaryIndex.inner {
+			imap.sorter.sorted = append(imap.sorter.sorted, v)
+		}
+		//imap.sorter.sorted = imap.CollectValues()
 		sort.Sort(imap.sorter)
 		imap.sorter.dirty = false
 	}

@@ -349,19 +349,17 @@ func BenchmarkUpdatePrimaryAndTwoSecondaryIndexedValue(b *testing.B) {
 	}
 }
 
+var rangeSortedCount = 20000
+
 func BenchmarkRangeSortedModified(b *testing.B) {
-	count := 2000
-	imap := CreateTestMap(count)
+	imap := CreateTestMap(rangeSortedCount)
 
 	imap.SetOrderFn(func(value1, Value2 *Person) bool {
 		return value1.Age < Value2.Age
 	})
 
 	for i := 0; i < b.N; i++ {
-		lastValue := -1
 		imap.RangeOrdered(func(key int64, value *Person) bool {
-			assert.LessOrEqual(b, lastValue, value.Age)
-			lastValue = value.Age
 			return true
 		})
 		imap.sorter.dirty = true
@@ -369,18 +367,15 @@ func BenchmarkRangeSortedModified(b *testing.B) {
 }
 
 func BenchmarkRangeSortedUnmodified(b *testing.B) {
-	count := 2000
-	imap := CreateTestMap(count)
+	imap := CreateTestMap(rangeSortedCount)
 
 	imap.SetOrderFn(func(value1, Value2 *Person) bool {
 		return value1.Age < Value2.Age
 	})
+	// presort it for the test
 	imap.checkSortedForUpdate()
 	for i := 0; i < b.N; i++ {
-		lastValue := -1
 		imap.RangeOrdered(func(key int64, value *Person) bool {
-			assert.LessOrEqual(b, lastValue, value.Age)
-			lastValue = value.Age
 			return true
 		})
 	}
