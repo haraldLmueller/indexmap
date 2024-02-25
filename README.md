@@ -179,3 +179,24 @@ Let $n$ be the number of elements inserted, $m$ be the number of indexes:
 | AddIndex  | $O(n)$     |
 
 The more indexes, the slower the write operations.
+
+### Benchmarks
+
+### Version 1.2.0
+
+```
+goos: linux
+goarch: amd64
+pkg: github.com/haraldLmueller/indexmap
+cpu: Intel(R) Celeron(R) N4100 CPU @ 1.10GHz
+BenchmarkInsertOnlyPrimaryInt-4                       	  813411	      1755 ns/op	     151 B/op	       3 allocs/op
+BenchmarkParallelInsertOnlyPrimaryInt-4               	  984680	      2012 ns/op	     183 B/op	       3 allocs/op
+BenchmarkNativeMap-4                                  	 1000000	      1675 ns/op	     181 B/op	       3 allocs/op
+BenchmarkNativeSyncMap-4                              	  792746	      2461 ns/op	     225 B/op	       7 allocs/op
+BenchmarkParallelNativeSyncMap-4                      	  796434	      2591 ns/op	     227 B/op	       7 allocs/op
+BenchmarkUpdateNoIndexedValue-4                       	  507723	      2270 ns/op	     129 B/op	       8 allocs/op
+BenchmarkUpdatePrimaryIndexedValue-4                  	  549063	      2111 ns/op	     129 B/op	       8 allocs/op
+BenchmarkUpdateOneSecondaryIndexedValue-4             	  438856	      2356 ns/op	     129 B/op	       8 allocs/op
+BenchmarkUpdateTwoSecondaryIndexedValue-4             	  500124	      2311 ns/op	     129 B/op	       8 allocs/op
+BenchmarkUpdatePrimaryAndTwoSecondaryIndexedValue-4   	  547125	      2197 ns/op	     130 B/op	       8 allocs/op
+```
