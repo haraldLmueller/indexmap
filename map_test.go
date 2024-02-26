@@ -349,7 +349,18 @@ func BenchmarkUpdatePrimaryAndTwoSecondaryIndexedValue(b *testing.B) {
 	}
 }
 
-var rangeSortedCount = 20000
+var rangeSortedCount = 2000
+
+func BenchmarkRange(b *testing.B) {
+	imap := CreateTestMap(rangeSortedCount)
+
+	for i := 0; i < b.N; i++ {
+		imap.Range(func(key int64, value *Person) bool {
+			return true
+		})
+		imap.sorter.dirty = true
+	}
+}
 
 func BenchmarkRangeSortedModified(b *testing.B) {
 	imap := CreateTestMap(rangeSortedCount)
