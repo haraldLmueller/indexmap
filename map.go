@@ -334,6 +334,14 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 	}
 }
 
+func (imap *IndexMap[K, V]) checkSortedForUpdate() {
+	if imap.sorter.dirty {
+		imap.sorter.sorted = imap.CollectValues()
+		sort.Sort(imap.sorter)
+		imap.sorter.dirty = false
+	}
+}
+
 // Range iterates over all the elements,
 // stops iteration if fn returns false,
 // guarantee to the order if OrderedFn was set before.
@@ -342,11 +350,7 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 func (imap *IndexMap[K, V]) RangeOrdered(fn func(key K, value *V) bool) {
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
-	if imap.sorter.dirty {
-		imap.sorter.sorted = imap.CollectValues()
-		sort.Sort(imap.sorter)
-		imap.sorter.dirty = false
-	}
+	imap.checkSortedForUpdate()
 	for _, v := range imap.sorter.sorted {
 		if !fn(imap.PrimaryKey(v), v) {
 			return
@@ -402,7 +406,18 @@ func (imap *IndexMap[K, V]) CollectValues() []*V {
 
 		values = append(values, v)
 	}
+	return values
+}
 
+// Collect returns all the keys and values.
+func (imap *IndexMap[K, V]) CollectValuesOrdered() []*V {
+	imap.lock.RLock()
+	defer imap.lock.RUnlock()
+	imap.checkSortedForUpdate()
+	var (
+		values = make([]*V, 0, imap.Len())
+	)
+	values = append(values, imap.sorter.sorted...)
 	return values
 }
 

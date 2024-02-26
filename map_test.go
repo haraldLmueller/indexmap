@@ -349,6 +349,43 @@ func BenchmarkUpdatePrimaryAndTwoSecondaryIndexedValue(b *testing.B) {
 	}
 }
 
+func BenchmarkRangeSortedModified(b *testing.B) {
+	count := 2000
+	imap := CreateTestMap(count)
+
+	imap.SetOrderFn(func(value1, Value2 *Person) bool {
+		return value1.Age < Value2.Age
+	})
+
+	for i := 0; i < b.N; i++ {
+		lastValue := -1
+		imap.RangeOrdered(func(key int64, value *Person) bool {
+			assert.LessOrEqual(b, lastValue, value.Age)
+			lastValue = value.Age
+			return true
+		})
+		imap.sorter.dirty = true
+	}
+}
+
+func BenchmarkRangeSortedUnmodified(b *testing.B) {
+	count := 2000
+	imap := CreateTestMap(count)
+
+	imap.SetOrderFn(func(value1, Value2 *Person) bool {
+		return value1.Age < Value2.Age
+	})
+	imap.checkSortedForUpdate()
+	for i := 0; i < b.N; i++ {
+		lastValue := -1
+		imap.RangeOrdered(func(key int64, value *Person) bool {
+			assert.LessOrEqual(b, lastValue, value.Age)
+			lastValue = value.Age
+			return true
+		})
+	}
+}
+
 func TestIndexMap_SortByAge(t *testing.T) {
 	//myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(500)
@@ -361,6 +398,8 @@ func TestIndexMap_SortByAge(t *testing.T) {
 		lastValue = value.Age
 		return true
 	})
+
+	// add a new Persopn and lets see if the order is still OK
 	pn := Person{500, "The New Name", 0, "San Francisco", []string{"Bob", "Cassidy"}}
 	imap.Insert(&pn)
 	lastValue = -1
