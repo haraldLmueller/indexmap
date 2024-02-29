@@ -1,10 +1,12 @@
 package indexmap
 
 import (
+	"cmp"
 	"fmt"
 	"math/rand"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -349,7 +351,7 @@ func BenchmarkUpdatePrimaryAndTwoSecondaryIndexedValue(b *testing.B) {
 	}
 }
 
-var rangeSortedCount = 2000
+var rangeSortedCount = 10000
 
 func BenchmarkRange(b *testing.B) {
 	imap := CreateTestMap(rangeSortedCount)
@@ -377,6 +379,21 @@ func BenchmarkRangeSortedModified(b *testing.B) {
 	}
 }
 
+func BenchmarkRangeSortedCmpModified(b *testing.B) {
+	imap := CreateTestMap(rangeSortedCount)
+
+	imap.SetCmpFn(func(value1, value2 *Person) int {
+		return cmp.Compare(value1.Age, value2.Age)
+	})
+
+	for i := 0; i < b.N; i++ {
+		imap.RangeOrdered(func(key int64, value *Person) bool {
+			return true
+		})
+		imap.sorter.dirty = true
+	}
+}
+
 func BenchmarkRangeSortedUnmodified(b *testing.B) {
 	imap := CreateTestMap(rangeSortedCount)
 
@@ -393,7 +410,6 @@ func BenchmarkRangeSortedUnmodified(b *testing.B) {
 }
 
 func TestIndexMap_SortByAge(t *testing.T) {
-	//myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(500)
 	imap.SetOrderFn(func(value1, Value2 *Person) bool {
 		return value1.Age < Value2.Age
@@ -416,6 +432,34 @@ func TestIndexMap_SortByAge(t *testing.T) {
 		}
 		assert.LessOrEqual(t, lastValue, value.Age)
 		lastValue = value.Age
+		return true
+	})
+	assert.True(t, foundNew, "the fresch inserted Value is not in sortet Range")
+
+}
+
+func TestIndexMap_SortByNameCmp(t *testing.T) {
+	//myRand := rand.New(rand.NewSource(123))
+	imap := CreateTestMap(500)
+	imap.SetCmpFn(func(value1, value2 *Person) int {
+		return cmp.Compare(strings.ToLower(value1.Name), strings.ToLower(value2.Name))
+	})
+	lastValue := ""
+	imap.RangeOrdered(func(key int64, value *Person) bool {
+		assert.LessOrEqual(t, lastValue, value.Name)
+		lastValue = value.Name
+		return true
+	})
+	pn := Person{500, "The New Name", 0, "San Francisco", []string{"Bob", "Cassidy"}}
+	imap.Insert(&pn)
+	lastValue = ""
+	foundNew := false
+	imap.RangeOrdered(func(key int64, value *Person) bool {
+		if value.Name == "The New Name" {
+			foundNew = true
+		}
+		assert.LessOrEqual(t, lastValue, value.Name)
+		lastValue = value.Name
 		return true
 	})
 	assert.True(t, foundNew, "the fresch inserted Value is not in sortet Range")
@@ -458,6 +502,7 @@ func TestUpdatePerson(t *testing.T) {
 	ok := imap.AddIndex(NameIndex, NewSecondaryIndex(func(value *Person) []any {
 		return []any{value.Name}
 	}))
+	assert.True(t, ok)
 	ok = imap.AddIndex("age", NewSecondaryIndex(func(value *Person) []any {
 		return []any{value.Age}
 	}))
@@ -484,5 +529,4 @@ func TestUpdatePerson(t *testing.T) {
 	assert.Equal(t, 2, len(likeGroup))
 
 	//	fmt.Println(dd.Dump(likeGroup))
-	//	t.Fail()
 }

@@ -2,6 +2,7 @@ package indexmap
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 	"sync"
 )
@@ -9,6 +10,7 @@ import (
 type IndexMapSorter[V any] struct {
 	sorted []*V
 	by     func(p1, p2 *V) bool // Closure used in the Less method.
+	cmp    func(p1, p2 *V) int  // Closure used in the SortFunc
 	dirty  bool
 }
 
@@ -38,8 +40,15 @@ func NewIndexMap[K comparable, V any](primaryIndex *PrimaryIndex[K, V]) *IndexMa
 	}
 }
 
+// SetOrderFn enables the capapility to Range over the data in a
+// sorted way. The sort was defined by the order function
+// this is at the end a Less function as in the as defined in
 func (imap *IndexMap[K, V]) SetOrderFn(order func(value1, Value2 *V) bool) {
 	imap.sorter.by = order
+}
+
+func (imap *IndexMap[K, V]) SetCmpFn(cmp func(value1, Value2 *V) int) {
+	imap.sorter.cmp = cmp
 }
 
 func (s *IndexMapSorter[V]) Less(i, j int) bool {
@@ -343,7 +352,11 @@ func (imap *IndexMap[K, V]) checkSortedForUpdate() {
 			imap.sorter.sorted = append(imap.sorter.sorted, v)
 		}
 		//imap.sorter.sorted = imap.CollectValues()
-		sort.Sort(imap.sorter)
+		if imap.sorter.by != nil {
+			sort.Sort(imap.sorter)
+		} else if imap.sorter.cmp != nil {
+			slices.SortFunc(imap.sorter.sorted, imap.sorter.cmp)
+		}
 		imap.sorter.dirty = false
 	}
 }
