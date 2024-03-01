@@ -20,6 +20,7 @@ func TestJsonMarshal(t *testing.T) {
 		1: {1, "Ashe", 38, "San Francisco", []string{"Bob", "Cassidy"}},
 		2: {2, "Bob", 18, "San Francisco", nil},
 		3: {3, "Cassidy", 40, "Shanghai", []string{"Bob", "Ashe"}},
+		4: {4, "Harald", 60, "Nürnberg", nil},
 	}
 
 	for _, v := range persons {
