@@ -1,22 +1,9 @@
 package indexmap
 
 import (
-	"reflect"
 	"slices"
-	"sort"
 	"sync"
 )
-
-type IndexMapSorter[V any] struct {
-	sorted []*V
-	by     func(p1, p2 *V) bool // Closure used in the Less method.
-	cmp    func(p1, p2 *V) int  // Closure used in the SortFunc
-	dirty  bool
-}
-
-func newIndexMapSorter[V any]() *IndexMapSorter[V] {
-	return &IndexMapSorter[V]{by: nil, dirty: true}
-}
 
 // IndexMap is a map supports seeking data with more indexes.
 // Serializing a IndexMap as JSON results in the same as serializing a map,
@@ -27,7 +14,9 @@ type IndexMap[K comparable, V any] struct {
 	indexes      map[string]*SecondaryIndex[V]
 	lock         sync.RWMutex
 	//version      int64
-	sorter *IndexMapSorter[V]
+	sorted []*V
+	cmp    func(p1, p2 *V) int // Closure used in the SortFunc
+	dirty  bool
 }
 
 // Create a IndexMap with a primary index,
@@ -36,38 +25,24 @@ func NewIndexMap[K comparable, V any](primaryIndex *PrimaryIndex[K, V]) *IndexMa
 	return &IndexMap[K, V]{
 		primaryIndex: primaryIndex,
 		indexes:      make(map[string]*SecondaryIndex[V]),
-		sorter:       newIndexMapSorter[V](),
+		dirty:        true,
 	}
 }
 
-// SetOrderFn enables the capapility to Range over the data in a
-// sorted way. The sort was defined by the order function
-// this is at the end a Less function as in the as defined in
-func (imap *IndexMap[K, V]) SetOrderFn(order func(value1, Value2 *V) bool) {
-	imap.sorter.by = order
-}
-
+// SetCmpFn, defines it it is not nil the compare
+// function which is use to sort the the result of the calls to
+//   - RangeOrdered
+//   - CollectValuesOrdered
+//
+// SortFunc sorts the slice x in ascending order as determined by the cmp function.
+// This sort is not guaranteed to be stable. cmp(a, b) should return a negative
+// number when a < b, a positive number when a > b and zero when a == b.
 func (imap *IndexMap[K, V]) SetCmpFn(cmp func(value1, Value2 *V) int) {
-	imap.sorter.cmp = cmp
+	imap.cmp = cmp
 }
 
-func (s *IndexMapSorter[V]) Less(i, j int) bool {
-	if s.by != nil {
-		return s.by(s.sorted[i], s.sorted[j])
-	} else {
-		return false
-	}
-}
-func (s *IndexMapSorter[V]) Len() int {
-	return len(s.sorted)
-}
-
-func (s *IndexMapSorter[V]) Swap(i, j int) {
-	s.sorted[i], s.sorted[j] = s.sorted[j], s.sorted[i]
-}
-
-func (s *IndexMapSorter[V]) setDirty() {
-	s.dirty = true
+func (imap *IndexMap[K, V]) setDirty() {
+	imap.dirty = true
 }
 
 // Add a secondary index,
@@ -89,29 +64,6 @@ func (imap *IndexMap[K, V]) AddIndex(indexName string, index *SecondaryIndex[V])
 	})
 
 	return true
-}
-
-// IndexChangeStatus checks if Primary index or some secondary indexes are different
-// this is spcial usfull for updating values because only
-// the necessary indexes have to be udated
-func (imap *IndexMap[K, V]) IndexChangeStatus(key K, v *V) (bool, []string) {
-	imap.lock.RLock()
-	defer imap.lock.RUnlock()
-	return imap.indexChangeStatus(key, v)
-}
-
-func (imap *IndexMap[K, V]) indexChangeStatus(key K, v *V) (bool, []string) {
-	existingValue := imap.primaryIndex.get(key)
-	retPrimary := imap.primaryIndex.extractField(v) != imap.primaryIndex.extractField(existingValue)
-	retSecondary := make([]string, 0)
-	for name, sIndex := range imap.indexes {
-		exSiValue := sIndex.extractField(existingValue)
-		otSiValue := sIndex.extractField(v)
-		if !reflect.DeepEqual(exSiValue, otSiValue) {
-			retSecondary = append(retSecondary, name)
-		}
-	}
-	return retPrimary, retSecondary
 }
 
 // Get value by the primary key,
@@ -193,9 +145,8 @@ func (imap *IndexMap[K, V]) Insert(values ...*V) {
 
 // insert is the lock free version of Inser
 func (imap *IndexMap[K, V]) insert(values ...*V) {
-
 	for i := range values {
-		imap.sorter.setDirty()
+		imap.setDirty()
 		oldKey := imap.primaryIndex.extractField(values[i])
 		// don't use Get(oldKey) that rlock on locked map (dead lock)
 		old := imap.primaryIndex.get(oldKey)
@@ -221,18 +172,21 @@ type UpdateFn[V any] func(value *V) (*V, bool)
 func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
 	imap.lock.Lock()
 	defer imap.lock.Unlock()
-
+	updated := false
 	// don't use Get(key) that rlock on locked map (dead lock)
 	old := imap.primaryIndex.get(key)
 	if old != nil {
 		imap.remove(key)
 	}
 
-	newV, _ := updateFn(old)
+	newV, localUpdated := updateFn(old)
+	updated = updated || localUpdated
 	if newV != nil {
 		imap.insert(newV)
 	}
-	imap.sorter.setDirty()
+	if updated {
+		imap.setDirty()
+	}
 }
 
 // Update the values for the given index and key,
@@ -242,6 +196,7 @@ func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateF
 	imap.lock.Lock()
 	defer imap.lock.Unlock()
 
+	updated := false
 	oldValueSet := imap.getAllBy(indexName, key)
 	if len(oldValueSet) == 0 {
 		return
@@ -252,12 +207,15 @@ func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateF
 	imap.removeValues(oldValues...)
 
 	for _, old := range oldValues {
-		newV, _ := updateFn(old)
+		newV, localUpdated := updateFn(old)
+		updated = updated || localUpdated
 		if newV != nil {
 			imap.insert(newV)
 		}
 	}
-	imap.sorter.setDirty()
+	if updated {
+		imap.setDirty()
+	}
 }
 
 // Remove values into the map,
@@ -267,7 +225,6 @@ func (imap *IndexMap[K, V]) Remove(keys ...K) {
 	defer imap.lock.Unlock()
 
 	imap.remove(keys...)
-	imap.sorter.setDirty()
 }
 
 // remove is the lock free  version Remove
@@ -285,7 +242,7 @@ func (imap *IndexMap[K, V]) remove(keys ...K) {
 			index.remove(elem)
 		}
 	}
-	imap.sorter.setDirty()
+	imap.setDirty()
 }
 
 // Remove values into the map,
@@ -307,7 +264,7 @@ func (imap *IndexMap[K, V]) removeBy(indexName string, keys ...any) {
 
 		imap.removeValueSet(values)
 	}
-	imap.sorter.setDirty()
+	imap.setDirty()
 }
 
 // Remove all values.
@@ -324,7 +281,7 @@ func (imap *IndexMap[K, V]) Clear() {
 			delete(imap.indexes[i].inner, k)
 		}
 	}
-	imap.sorter.setDirty()
+	imap.setDirty()
 }
 
 // Range iterates over all the elements,
@@ -344,20 +301,17 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 }
 
 func (imap *IndexMap[K, V]) checkSortedForUpdate() {
-	if imap.sorter.dirty {
+	if imap.dirty {
 		// reuse he underlying array, slice the slice to zero length
 		// due to performance
-		imap.sorter.sorted = imap.sorter.sorted[:0]
+		imap.sorted = imap.sorted[:0]
 		for _, v := range imap.primaryIndex.inner {
-			imap.sorter.sorted = append(imap.sorter.sorted, v)
+			imap.sorted = append(imap.sorted, v)
 		}
-		//imap.sorter.sorted = imap.CollectValues()
-		if imap.sorter.by != nil {
-			sort.Sort(imap.sorter)
-		} else if imap.sorter.cmp != nil {
-			slices.SortFunc(imap.sorter.sorted, imap.sorter.cmp)
+		if imap.cmp != nil {
+			slices.SortFunc(imap.sorted, imap.cmp)
 		}
-		imap.sorter.dirty = false
+		imap.dirty = false
 	}
 }
 
@@ -370,7 +324,7 @@ func (imap *IndexMap[K, V]) RangeOrdered(fn func(key K, value *V) bool) {
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
 	imap.checkSortedForUpdate()
-	for _, v := range imap.sorter.sorted {
+	for _, v := range imap.sorted {
 		if !fn(imap.PrimaryKey(v), v) {
 			return
 		}
@@ -406,7 +360,7 @@ func (imap *IndexMap[K, V]) CollectKeys() []K {
 	var (
 		keys = make([]K, 0, imap.Len())
 	)
-	for k, _ := range imap.primaryIndex.inner {
+	for k := range imap.primaryIndex.inner {
 		keys = append(keys, k)
 	}
 
@@ -436,7 +390,7 @@ func (imap *IndexMap[K, V]) CollectValuesOrdered() []*V {
 	var (
 		values = make([]*V, 0, imap.Len())
 	)
-	values = append(values, imap.sorter.sorted...)
+	values = append(values, imap.sorted...)
 	return values
 }
 

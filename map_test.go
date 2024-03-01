@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"math/rand"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -13,32 +12,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
-
-func TestIndexChangeStatus(t *testing.T) {
-	imap := CreateTestMap(2000)
-	p1 := imap.Get(100)
-	p2 := &Person{100, "Amber", 68, "Gambrills", []string{"Carol"}}
-	pi, sil := imap.IndexChangeStatus(p1.ID, p2)
-	assert.Equal(t, false, pi)
-	assert.Len(t, sil, 0, "should not contain any changed index")
-
-	p2.City = "London"
-	pi, sil = imap.IndexChangeStatus(p1.ID, p2)
-	assert.Equal(t, false, pi)
-	assert.Len(t, sil, 1, "city should be changed")
-	assert.True(t, slices.Contains(sil, CityIndex), "city should be changed")
-
-	p2.ID = 2001
-	pi, sil = imap.IndexChangeStatus(p1.ID, p2)
-	assert.Equal(t, true, pi)
-	assert.True(t, slices.Contains(sil, CityIndex), "city should be changed")
-
-	p2.Name = "Hugo"
-	pi, sil = imap.IndexChangeStatus(p1.ID, p2)
-	assert.Equal(t, true, pi)
-	assert.True(t, slices.Contains(sil, NameIndex), "name should be changed")
-	assert.True(t, slices.Contains(sil, CityIndex), "city should be changed")
-}
 
 func TestIndexMap(t *testing.T) {
 	imap := NewIndexMap(NewPrimaryIndex(func(value *Person) int64 {
@@ -284,6 +257,8 @@ func FuzzAddSecondaryIndex(f *testing.F) {
 func BenchmarkUpdateNoIndexedValue(b *testing.B) {
 	myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(2000)
+	// nothing before schould be in the benchmark evaluation
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pi := myRand.Int63n(2000)
 		p := imap.Get(pi)
@@ -296,6 +271,8 @@ func BenchmarkUpdateNoIndexedValue(b *testing.B) {
 }
 func BenchmarkUpdatePrimaryIndexedValue(b *testing.B) {
 	imap := CreateTestMap(2000)
+	// nothing before schould be in the benchmark evaluation
+	b.ResetTimer()
 	var nextIdx int64 = 0
 	for i := 0; i < b.N; i++ {
 		p := imap.Get(nextIdx)
@@ -309,6 +286,8 @@ func BenchmarkUpdatePrimaryIndexedValue(b *testing.B) {
 func BenchmarkUpdateOneSecondaryIndexedValue(b *testing.B) {
 	myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(2000)
+	// nothing before schould be in the benchmark evaluation
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pi := myRand.Int63n(2000)
 		p := imap.Get(pi)
@@ -322,7 +301,8 @@ func BenchmarkUpdateOneSecondaryIndexedValue(b *testing.B) {
 func BenchmarkUpdateTwoSecondaryIndexedValue(b *testing.B) {
 	myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(2000)
-
+	// nothing before schould be in the benchmark evaluation
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pi := myRand.Int63n(2000)
 		p := imap.Get(pi)
@@ -339,6 +319,8 @@ func BenchmarkUpdatePrimaryAndTwoSecondaryIndexedValue(b *testing.B) {
 	var nextIdx int64 = 0
 	count := 20000
 	imap := CreateTestMap(count)
+	// nothing before schould be in the benchmark evaluation
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := imap.Get(nextIdx)
 		imap.Update(p.ID, func(value *Person) (*Person, bool) {
@@ -355,64 +337,63 @@ var rangeSortedCount = 10000
 
 func BenchmarkRange(b *testing.B) {
 	imap := CreateTestMap(rangeSortedCount)
-
+	// nothing before schould be in the benchmark evaluation
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		imap.Range(func(key int64, value *Person) bool {
 			return true
 		})
-		imap.sorter.dirty = true
+		imap.dirty = true
 	}
 }
 
-func BenchmarkRangeSortedModified(b *testing.B) {
-	imap := CreateTestMap(rangeSortedCount)
+func benRangeSorted(b *testing.B, cnt int, modified bool) {
+	imap := CreateTestMap(cnt)
 
-	imap.SetOrderFn(func(value1, Value2 *Person) bool {
-		return value1.Age < Value2.Age
-	})
-
-	for i := 0; i < b.N; i++ {
-		imap.RangeOrdered(func(key int64, value *Person) bool {
-			return true
-		})
-		imap.sorter.dirty = true
-	}
-}
-
-func BenchmarkRangeSortedCmpModified(b *testing.B) {
-	imap := CreateTestMap(rangeSortedCount)
-
-	imap.SetCmpFn(func(value1, value2 *Person) int {
-		return cmp.Compare(value1.Age, value2.Age)
-	})
-
-	for i := 0; i < b.N; i++ {
-		imap.RangeOrdered(func(key int64, value *Person) bool {
-			return true
-		})
-		imap.sorter.dirty = true
-	}
-}
-
-func BenchmarkRangeSortedUnmodified(b *testing.B) {
-	imap := CreateTestMap(rangeSortedCount)
-
-	imap.SetOrderFn(func(value1, Value2 *Person) bool {
-		return value1.Age < Value2.Age
+	imap.SetCmpFn(func(value1, Value2 *Person) int {
+		return cmp.Compare(value1.Age, Value2.Age)
 	})
 	// presort it for the test
 	imap.checkSortedForUpdate()
+	// nothing before schould be in the benchmark evaluation
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		imap.RangeOrdered(func(key int64, value *Person) bool {
 			return true
 		})
+		imap.dirty = modified
 	}
 }
 
+func BenchmarkRangeSortedUnmodified____20(b *testing.B) {
+	benRangeSorted(b, 20, false)
+}
+func BenchmarkRangeSortedUnmodified___200(b *testing.B) {
+	benRangeSorted(b, 200, false)
+}
+func BenchmarkRangeSortedUnmodified__2000(b *testing.B) {
+	benRangeSorted(b, 2000, false)
+}
+func BenchmarkRangeSortedUnmodified_20000(b *testing.B) {
+	benRangeSorted(b, 20000, false)
+}
+
+func BenchmarkRangeSortedModified____20(b *testing.B) {
+	benRangeSorted(b, 20, true)
+}
+func BenchmarkRangeSortedModified___200(b *testing.B) {
+	benRangeSorted(b, 200, true)
+}
+func BenchmarkRangeSortedModified__2000(b *testing.B) {
+	benRangeSorted(b, 2000, true)
+}
+func BenchmarkRangeSortedModified_20000(b *testing.B) {
+	benRangeSorted(b, 20000, true)
+}
 func TestIndexMap_SortByAge(t *testing.T) {
 	imap := CreateTestMap(500)
-	imap.SetOrderFn(func(value1, Value2 *Person) bool {
-		return value1.Age < Value2.Age
+	imap.SetCmpFn(func(value1, Value2 *Person) int {
+		return cmp.Compare(value1.Age, Value2.Age)
 	})
 	lastValue := -1
 	imap.RangeOrdered(func(key int64, value *Person) bool {
@@ -469,8 +450,8 @@ func TestIndexMap_SortByNameCmp(t *testing.T) {
 func TestIndexMap_SortByName(t *testing.T) {
 	//myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(500)
-	imap.SetOrderFn(func(value1, Value2 *Person) bool {
-		return value1.Name < Value2.Name
+	imap.SetCmpFn(func(value1, Value2 *Person) int {
+		return cmp.Compare(value1.Name, Value2.Name)
 	})
 	lastValue := ""
 	imap.RangeOrdered(func(key int64, value *Person) bool {
