@@ -276,7 +276,7 @@ func FuzzAddSecondaryIndex(f *testing.F) {
 func BenchmarkUpdateNoIndexedValue(b *testing.B) {
 	myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(2000)
-	// nothing before schould be in the benchmark evaluation
+	// nothing before should be in the benchmark evaluation
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pi := myRand.Int63n(2000)
@@ -290,7 +290,7 @@ func BenchmarkUpdateNoIndexedValue(b *testing.B) {
 }
 func BenchmarkUpdatePrimaryIndexedValue(b *testing.B) {
 	imap := CreateTestMap(2000)
-	// nothing before schould be in the benchmark evaluation
+	// nothing before should be in the benchmark evaluation
 	b.ResetTimer()
 	var nextIdx int64 = 0
 	for i := 0; i < b.N; i++ {
@@ -305,7 +305,7 @@ func BenchmarkUpdatePrimaryIndexedValue(b *testing.B) {
 func BenchmarkUpdateOneSecondaryIndexedValue(b *testing.B) {
 	myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(2000)
-	// nothing before schould be in the benchmark evaluation
+	// nothing before should be in the benchmark evaluation
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pi := myRand.Int63n(2000)
@@ -320,7 +320,7 @@ func BenchmarkUpdateOneSecondaryIndexedValue(b *testing.B) {
 func BenchmarkUpdateTwoSecondaryIndexedValue(b *testing.B) {
 	myRand := rand.New(rand.NewSource(123))
 	imap := CreateTestMap(2000)
-	// nothing before schould be in the benchmark evaluation
+	// nothing before should be in the benchmark evaluation
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pi := myRand.Int63n(2000)
@@ -338,7 +338,7 @@ func BenchmarkUpdatePrimaryAndTwoSecondaryIndexedValue(b *testing.B) {
 	var nextIdx int64 = 0
 	count := 20000
 	imap := CreateTestMap(count)
-	// nothing before schould be in the benchmark evaluation
+	// nothing before should be in the benchmark evaluation
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := imap.Get(nextIdx)
@@ -356,7 +356,7 @@ var rangeSortedCount = 10000
 
 func BenchmarkRange(b *testing.B) {
 	imap := CreateTestMap(rangeSortedCount)
-	// nothing before schould be in the benchmark evaluation
+	// nothing before should be in the benchmark evaluation
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		imap.Range(func(key int64, value *Person) bool {
@@ -374,7 +374,7 @@ func benRangeSorted(b *testing.B, cnt int, modified bool) {
 	})
 	// presort it for the test
 	imap.checkSortedForUpdate()
-	// nothing before schould be in the benchmark evaluation
+	// nothing before should be in the benchmark evaluation
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		imap.RangeOrdered(func(key int64, value *Person) bool {
