@@ -1,6 +1,9 @@
 package indexmap
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // IndexMap is a map supports seeking data with more indexes.
 // Serializing a IndexMap as JSON results in the same as serializing a map,
@@ -10,7 +13,10 @@ type IndexMap[K comparable, V any] struct {
 	primaryIndex *PrimaryIndex[K, V]
 	indexes      map[string]*SecondaryIndex[V]
 	lock         sync.RWMutex
-	version      int64
+	//version      int64
+	sorted []*V
+	cmp    func(p1, p2 *V) int // Closure used in the SortFunc
+	dirty  bool
 }
 
 // Create a IndexMap with a primary index,
@@ -19,7 +25,24 @@ func NewIndexMap[K comparable, V any](primaryIndex *PrimaryIndex[K, V]) *IndexMa
 	return &IndexMap[K, V]{
 		primaryIndex: primaryIndex,
 		indexes:      make(map[string]*SecondaryIndex[V]),
+		dirty:        true,
 	}
+}
+
+// SetCmpFn, defines it it is not nil the compare
+// function which is use to sort the the result of the calls to
+//   - RangeOrdered
+//   - CollectValuesOrdered
+//
+// SortFunc sorts the slice x in ascending order as determined by the cmp function.
+// This sort is not guaranteed to be stable. cmp(a, b) should return a negative
+// number when a < b, a positive number when a > b and zero when a == b.
+func (imap *IndexMap[K, V]) SetCmpFn(cmp func(value1, Value2 *V) int) {
+	imap.cmp = cmp
+}
+
+func (imap *IndexMap[K, V]) setDirty() {
+	imap.dirty = true
 }
 
 // Add a secondary index,
@@ -96,7 +119,16 @@ func (imap *IndexMap[K, V]) GetAllBy(indexName string, key any) []*V {
 
 // Return true if the value with given key exists,
 // false otherwise.
+//
+// Deprecated: The Contain is will be gone in the future.
+// use Contains instead. This is the more common name.
 func (imap *IndexMap[K, V]) Contain(key K) bool {
+	return imap.Get(key) != nil
+}
+
+// Return true if the value with given key exists,
+// false otherwise.
+func (imap *IndexMap[K, V]) Contains(key K) bool {
 	return imap.Get(key) != nil
 }
 
@@ -113,8 +145,8 @@ func (imap *IndexMap[K, V]) Insert(values ...*V) {
 
 // insert is the lock free version of Inser
 func (imap *IndexMap[K, V]) insert(values ...*V) {
-
 	for i := range values {
+		imap.setDirty()
 		oldKey := imap.primaryIndex.extractField(values[i])
 		// don't use Get(oldKey) that rlock on locked map (dead lock)
 		old := imap.primaryIndex.get(oldKey)
@@ -132,7 +164,7 @@ func (imap *IndexMap[K, V]) insert(values ...*V) {
 // An UpdateFn modifies the given value,
 // and returns the modified value, they could be the same object,
 // true if the object is modified ,
-// false otherwise
+// false otherwise.
 type UpdateFn[V any] func(value *V) (*V, bool)
 
 // Update the value for the given key,
@@ -144,22 +176,31 @@ func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
 	// don't use Get(key) that rlock on locked map (dead lock)
 	old := imap.primaryIndex.get(key)
 	if old != nil {
+		d := imap.dirty
 		imap.remove(key)
+		imap.dirty = d
 	}
-
-	newV, _ := updateFn(old)
+	updated := false
+	newV, localUpdated := updateFn(old)
+	updated = updated || localUpdated
 	if newV != nil {
+		d := imap.dirty
 		imap.insert(newV)
+		imap.dirty = d
+	}
+	if updated {
+		imap.setDirty()
 	}
 }
 
-// Update the values for the given index and key,
+// Update the values for the given index and key.
 // it removes the old ones if exist, and inserts updateFn(old) for every old ones if not nil.
 // NOTE: the modified values have to be with unique primary key
 func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateFn[V]) {
 	imap.lock.Lock()
 	defer imap.lock.Unlock()
 
+	updated := false
 	oldValueSet := imap.getAllBy(indexName, key)
 	if len(oldValueSet) == 0 {
 		return
@@ -170,10 +211,14 @@ func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateF
 	imap.removeValues(oldValues...)
 
 	for _, old := range oldValues {
-		newV, _ := updateFn(old)
+		newV, localUpdated := updateFn(old)
+		updated = updated || localUpdated
 		if newV != nil {
 			imap.insert(newV)
 		}
+	}
+	if updated {
+		imap.setDirty()
 	}
 }
 
@@ -201,6 +246,7 @@ func (imap *IndexMap[K, V]) remove(keys ...K) {
 			index.remove(elem)
 		}
 	}
+	imap.setDirty()
 }
 
 // Remove values into the map,
@@ -222,6 +268,7 @@ func (imap *IndexMap[K, V]) removeBy(indexName string, keys ...any) {
 
 		imap.removeValueSet(values)
 	}
+	imap.setDirty()
 }
 
 // Remove all values.
@@ -238,6 +285,7 @@ func (imap *IndexMap[K, V]) Clear() {
 			delete(imap.indexes[i].inner, k)
 		}
 	}
+	imap.setDirty()
 }
 
 // Range iterates over all the elements,
@@ -251,6 +299,37 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 
 	for k, v := range imap.primaryIndex.inner {
 		if !fn(k, v) {
+			return
+		}
+	}
+}
+
+func (imap *IndexMap[K, V]) checkSortedForUpdate() {
+	if imap.dirty {
+		// reuse he underlying array, slice the slice to zero length
+		// due to performance
+		imap.sorted = imap.sorted[:0]
+		for _, v := range imap.primaryIndex.inner {
+			imap.sorted = append(imap.sorted, v)
+		}
+		if imap.cmp != nil {
+			slices.SortFunc(imap.sorted, imap.cmp)
+		}
+		imap.dirty = false
+	}
+}
+
+// Range iterates over all the elements,
+// stops iteration if fn returns false,
+// guarantee to the order if OrderedFn was set before.
+// don't use modifying calls to this indexmap while the Range is running
+// that may cause dead locks.
+func (imap *IndexMap[K, V]) RangeOrdered(fn func(key K, value *V) bool) {
+	imap.lock.RLock()
+	defer imap.lock.RUnlock()
+	imap.checkSortedForUpdate()
+	for _, v := range imap.sorted {
+		if !fn(imap.PrimaryKey(v), v) {
 			return
 		}
 	}
@@ -275,6 +354,48 @@ func (imap *IndexMap[K, V]) rangeByLocked(indexName string, fn func(key any, val
 		}
 	}
 
+}
+
+// Collect returns all the keys and values.
+func (imap *IndexMap[K, V]) CollectKeys() []K {
+	imap.lock.RLock()
+	defer imap.lock.RUnlock()
+
+	var (
+		keys = make([]K, 0, imap.Len())
+	)
+	for k := range imap.primaryIndex.inner {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
+// Collect returns all the keys and values.
+func (imap *IndexMap[K, V]) CollectValues() []*V {
+	imap.lock.RLock()
+	defer imap.lock.RUnlock()
+
+	var (
+		values = make([]*V, 0, imap.Len())
+	)
+	for _, v := range imap.primaryIndex.inner {
+
+		values = append(values, v)
+	}
+	return values
+}
+
+// Collect returns all the keys and values.
+func (imap *IndexMap[K, V]) CollectValuesOrdered() []*V {
+	imap.lock.RLock()
+	defer imap.lock.RUnlock()
+	imap.checkSortedForUpdate()
+	var (
+		values = make([]*V, 0, imap.Len())
+	)
+	values = append(values, imap.sorted...)
+	return values
 }
 
 // Collect returns all the keys and values.
