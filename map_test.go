@@ -161,6 +161,25 @@ func TestIndexMap_PrimaryKey(t *testing.T) {
 	assert.Equal(t, p.ID, imap.PrimaryKey(p))
 }
 
+func TestIndexMap_Upate_dirty(t *testing.T) {
+	imap := NewIndexMap(NewPrimaryIndex(func(value *Person) int64 {
+		return value.ID
+	}))
+	InsertData(imap, GenPersons())
+	// get it once sortet to be not dirty
+	imap.CollectValuesOrdered()
+	assert.False(t, imap.dirty)
+	imap.Update(1, func(value *Person) (*Person, bool) {
+		return value, false
+	})
+	assert.False(t, imap.dirty)
+	imap.Update(2, func(value *Person) (*Person, bool) {
+		value.City = "Rome"
+		return value, true
+	})
+	assert.True(t, imap.dirty)
+}
+
 func BenchmarkInsertOnlyPrimaryInt(b *testing.B) {
 	n := len(names)
 	myRand := rand.New(rand.NewSource(123))

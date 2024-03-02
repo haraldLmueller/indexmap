@@ -164,7 +164,7 @@ func (imap *IndexMap[K, V]) insert(values ...*V) {
 // An UpdateFn modifies the given value,
 // and returns the modified value, they could be the same object,
 // true if the object is modified ,
-// false otherwise
+// false otherwise.
 type UpdateFn[V any] func(value *V) (*V, bool)
 
 // Update the value for the given key,
@@ -172,24 +172,28 @@ type UpdateFn[V any] func(value *V) (*V, bool)
 func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
 	imap.lock.Lock()
 	defer imap.lock.Unlock()
-	updated := false
+
 	// don't use Get(key) that rlock on locked map (dead lock)
 	old := imap.primaryIndex.get(key)
 	if old != nil {
+		d := imap.dirty
 		imap.remove(key)
+		imap.dirty = d
 	}
-
+	updated := false
 	newV, localUpdated := updateFn(old)
 	updated = updated || localUpdated
 	if newV != nil {
+		d := imap.dirty
 		imap.insert(newV)
+		imap.dirty = d
 	}
 	if updated {
 		imap.setDirty()
 	}
 }
 
-// Update the values for the given index and key,
+// Update the values for the given index and key.
 // it removes the old ones if exist, and inserts updateFn(old) for every old ones if not nil.
 // NOTE: the modified values have to be with unique primary key
 func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateFn[V]) {
