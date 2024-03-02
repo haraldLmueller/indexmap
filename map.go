@@ -121,7 +121,7 @@ func (imap *IndexMap[K, V]) GetAllBy(indexName string, key any) []*V {
 // false otherwise.
 //
 // Deprecated: The Contain is will be gone in the future.
-// user Contains instead. Thi is more common
+// use Contains instead. This is the more common name.
 func (imap *IndexMap[K, V]) Contain(key K) bool {
 	return imap.Get(key) != nil
 }
