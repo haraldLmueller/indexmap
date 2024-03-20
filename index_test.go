@@ -76,3 +76,36 @@ func TestSecondaryIndex(t *testing.T) {
 	assert.False(t, ok)
 
 }
+
+func TestSecondaryContainsIndex(t *testing.T) {
+	index := NewIndexMap(NewPrimaryIndex(func(value *Person) int64 {
+		return value.ID
+	}))
+
+	index.AddIndex("city", NewSecondaryIndex(func(value *Person) []any {
+		return []any{value.City}
+	}))
+
+	// Like is a "contain" index
+	index.AddIndex("like", NewSecondaryIndex(func(value *Person) []any {
+		like := make([]any, 0, len(value.Like))
+		for i := range value.Like {
+			like = append(like, value.Like[i])
+		}
+		return like
+	}))
+
+	persons := GenPersons()
+
+	for _, person := range persons {
+		index.insert(person)
+	}
+	likes := index.getAllBy("like", "Bob")
+	assert.Equal(t, 2, len(likes), "have to conain Ashe and Cassidy")
+	likes = index.getAllBy("like", "Cassidy")
+	assert.Equal(t, 2, len(likes), "have to conain Ashe and Harald")
+	likes = index.getAllBy("like", "Ashe")
+	assert.Equal(t, 1, len(likes), "Ashe have to like Cassidy")
+	likes = index.getAllBy("like", "Harald")
+	assert.Equal(t, 0, len(likes), "Harald have to like no likes")
+}
