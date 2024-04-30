@@ -169,7 +169,7 @@ type UpdateFn[V any] func(value *V) (*V, bool)
 
 // Update the value for the given key,
 // it removes the old one if exists, and inserts updateFn(old) if modified and not nil.
-func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
+func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) *V {
 	imap.lock.Lock()
 	defer imap.lock.Unlock()
 
@@ -191,6 +191,7 @@ func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) {
 	if updated {
 		imap.setDirty()
 	}
+	return newV
 }
 
 // Update the values for the given index and key.
