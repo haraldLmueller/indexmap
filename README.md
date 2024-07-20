@@ -161,6 +161,14 @@ imap.Range(func(key int64, value *Person) bool {
     return true
 })
 ```
+There is an ordered version as well. To use that, you have to set
+a compare function first, i.e. :
+```golang
+imap.SetCmpFn(func(value1, Value2 *Person) int {
+		return cmp.Compare(value1.Age, Value2.Age)
+	})
+```
+With that RangeOrdered ranges the values in ascending age order.
 
 Additionally, a useful method to get all keys and values:
 ```golang
