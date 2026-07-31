@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -529,4 +530,119 @@ func TestUpdatePerson(t *testing.T) {
 	assert.Equal(t, 2, len(likeGroup))
 
 	//	fmt.Println(dd.Dump(likeGroup))
+}
+
+// waitOrFail waits for wg, but reports a failure instead of hanging forever if
+// the goroutines are stuck on a lock. A deadlock is a plausible outcome of a
+// regression here, and a test that never returns is worse than a failing one.
+func waitOrFail(t *testing.T, wg *sync.WaitGroup, timeout time.Duration) {
+	t.Helper()
+
+	finished := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(finished)
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(timeout):
+		t.Fatalf("goroutines did not finish within %s, the map is most likely deadlocked", timeout)
+	}
+}
+
+// The sorted view is built lazily on the first ordered read. Building it must
+// not happen under a read lock, or else concurrent readers of a freshly
+// modified map write imap.sorted at the same time. Run with -race.
+func TestIndexMap_ConcurrentOrderedReads(t *testing.T) {
+	imap := CreateTestMap(500)
+	imap.SetCmpFn(func(value1, value2 *Person) int {
+		return cmp.Compare(value1.Age, value2.Age)
+	})
+
+	const readers = 8
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range readers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// let all readers hit the still unsorted map at the same time
+			<-start
+
+			if i%2 == 0 {
+				values := imap.CollectValuesOrdered()
+				assert.Equal(t, imap.Len(), len(values))
+				assertSortedByAge(t, values)
+				return
+			}
+
+			assertRangeSortedByAge(t, imap)
+		}(i)
+	}
+
+	close(start)
+	waitOrFail(t, &wg, 30*time.Second)
+}
+
+// Readers must stay correct and lock free while the map is written
+// concurrently. Run with -race.
+func TestIndexMap_ConcurrentOrderedReadsAndWrites(t *testing.T) {
+	imap := CreateTestMap(200)
+	imap.SetCmpFn(func(value1, value2 *Person) int {
+		return cmp.Compare(value1.Age, value2.Age)
+	})
+
+	const (
+		readers = 6
+		reads   = 200
+		writes  = 200
+	)
+
+	var wg sync.WaitGroup
+	for range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range reads {
+				assertSortedByAge(t, imap.CollectValuesOrdered())
+				assertRangeSortedByAge(t, imap)
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		myRand := rand.New(rand.NewSource(42))
+		for i := range writes {
+			// every write marks the sorted view dirty again
+			imap.Insert(createRandomPerson(int64(1000+i), myRand))
+			imap.Remove(int64(i))
+		}
+	}()
+
+	waitOrFail(t, &wg, 30*time.Second)
+}
+
+func assertSortedByAge(t *testing.T, values []*Person) {
+	t.Helper()
+
+	assert.True(t, sort.SliceIsSorted(values, func(a, b int) bool {
+		return values[a].Age < values[b].Age
+	}), "CollectValuesOrdered returned unsorted values")
+}
+
+func assertRangeSortedByAge(t *testing.T, imap *IndexMap[int64, Person]) {
+	t.Helper()
+
+	lastAge := -1
+	imap.RangeOrdered(func(_ int64, value *Person) bool {
+		if !assert.LessOrEqual(t, lastAge, value.Age, "RangeOrdered visited the values out of order") {
+			return false
+		}
+		lastAge = value.Age
+		return true
+	})
 }
