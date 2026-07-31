@@ -646,3 +646,48 @@ func assertRangeSortedByAge(t *testing.T, imap *IndexMap[int64, Person]) {
 		return true
 	})
 }
+
+// The Collect functions take the read lock and then call Len(), which takes it
+// again. Go's RWMutex is not reentrant: a writer arriving between the two
+// acquisitions blocks the second one, and the writer in turn waits for the
+// read lock the caller still holds. Run with -race.
+func TestIndexMap_ConcurrentCollectAndWrite(t *testing.T) {
+	imap := CreateTestMap(200)
+
+	const (
+		readers = 6
+		reads   = 200
+		writes  = 200
+	)
+
+	var wg sync.WaitGroup
+	for i := range readers {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for range reads {
+				switch i % 3 {
+				case 0:
+					assert.NotEmpty(t, imap.CollectKeys())
+				case 1:
+					assert.NotEmpty(t, imap.CollectValues())
+				default:
+					keys, values := imap.Collect()
+					assert.Equal(t, len(keys), len(values))
+				}
+			}
+		}(i)
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		myRand := rand.New(rand.NewSource(42))
+		for i := range writes {
+			imap.Insert(createRandomPerson(int64(1000+i), myRand))
+			imap.Remove(int64(i))
+		}
+	}()
+
+	waitOrFail(t, &wg, 30*time.Second)
+}

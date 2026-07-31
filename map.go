@@ -391,7 +391,7 @@ func (imap *IndexMap[K, V]) CollectKeys() []K {
 	defer imap.lock.RUnlock()
 
 	var (
-		keys = make([]K, 0, imap.Len())
+		keys = make([]K, 0, imap.lenLocked())
 	)
 	for k := range imap.primaryIndex.inner {
 		keys = append(keys, k)
@@ -406,7 +406,7 @@ func (imap *IndexMap[K, V]) CollectValues() []*V {
 	defer imap.lock.RUnlock()
 
 	var (
-		values = make([]*V, 0, imap.Len())
+		values = make([]*V, 0, imap.lenLocked())
 	)
 	for _, v := range imap.primaryIndex.inner {
 
@@ -435,8 +435,8 @@ func (imap *IndexMap[K, V]) Collect() ([]K, []*V) {
 	defer imap.lock.RUnlock()
 
 	var (
-		keys   = make([]K, 0, imap.Len())
-		values = make([]*V, 0, imap.Len())
+		keys   = make([]K, 0, imap.lenLocked())
+		values = make([]*V, 0, imap.lenLocked())
 	)
 	for k, v := range imap.primaryIndex.inner {
 		keys = append(keys, k)
@@ -468,6 +468,13 @@ func (imap *IndexMap[K, V]) Len() int {
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
 
+	return imap.lenLocked()
+}
+
+// lenLocked is the lock free version of Len.
+// Taking the read lock recursively would deadlock as soon as a writer is
+// waiting in between, so callers that already hold a lock use this one.
+func (imap *IndexMap[K, V]) lenLocked() int {
 	return len(imap.primaryIndex.inner)
 }
 
