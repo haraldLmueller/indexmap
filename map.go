@@ -38,7 +38,11 @@ func NewIndexMap[K comparable, V any](primaryIndex *PrimaryIndex[K, V]) *IndexMa
 // This sort is not guaranteed to be stable. cmp(a, b) should return a negative
 // number when a < b, a positive number when a > b and zero when a == b.
 func (imap *IndexMap[K, V]) SetCmpFn(cmp func(value1, Value2 *V) int) {
+	imap.lock.Lock()
+	defer imap.lock.Unlock()
+
 	imap.cmp = cmp
+	imap.setDirty()
 }
 
 func (imap *IndexMap[K, V]) setDirty() {

@@ -691,3 +691,19 @@ func TestIndexMap_ConcurrentCollectAndWrite(t *testing.T) {
 
 	waitOrFail(t, &wg, 30*time.Second)
 }
+
+// A comparator set after the values were inserted has to be picked up by the
+// next ordered read, even though the data itself did not change.
+func TestIndexMap_SetCmpFnAfterOrderedRead(t *testing.T) {
+	imap := CreateTestMap(50)
+
+	// build the sorted view before the comparator is known
+	assert.Len(t, imap.CollectValuesOrdered(), imap.Len())
+
+	imap.SetCmpFn(func(value1, value2 *Person) int {
+		return cmp.Compare(value1.Age, value2.Age)
+	})
+
+	assertSortedByAge(t, imap.CollectValuesOrdered())
+	assertRangeSortedByAge(t, imap)
+}
