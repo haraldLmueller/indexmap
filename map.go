@@ -143,12 +143,12 @@ func (imap *IndexMap[K, V]) Insert(values ...*V) {
 	imap.insert(values...)
 }
 
-// insert is the lock free version of Inser
+// insert is the lock-free version of Insert
 func (imap *IndexMap[K, V]) insert(values ...*V) {
 	for i := range values {
 		imap.setDirty()
 		oldKey := imap.primaryIndex.extractField(values[i])
-		// don't use Get(oldKey) that rlock on locked map (dead lock)
+		// don't use Get(oldKey) that rlock on locked map (deadlock)
 		old := imap.primaryIndex.get(oldKey)
 		imap.primaryIndex.insert(values[i])
 		for _, index := range imap.indexes {
@@ -173,16 +173,14 @@ func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) *V {
 	imap.lock.Lock()
 	defer imap.lock.Unlock()
 
-	// don't use Get(key) that rlock on locked map (dead lock)
+	// don't use Get(key) that rlock on locked map (deadlock)
 	old := imap.primaryIndex.get(key)
 	if old != nil {
 		d := imap.dirty
 		imap.remove(key)
 		imap.dirty = d
 	}
-	updated := false
-	newV, localUpdated := updateFn(old)
-	updated = updated || localUpdated
+	newV, updated := updateFn(old)
 	if newV != nil {
 		d := imap.dirty
 		imap.insert(newV)
@@ -194,7 +192,7 @@ func (imap *IndexMap[K, V]) Update(key K, updateFn UpdateFn[V]) *V {
 	return newV
 }
 
-// Update the values for the given index and key.
+// UpdateBy updates the values for the given index and key.
 // it removes the old ones if exist, and inserts updateFn(old) for every old ones if not nil.
 // NOTE: the modified values have to be with unique primary key
 func (imap *IndexMap[K, V]) UpdateBy(indexName string, key any, updateFn UpdateFn[V]) {
@@ -232,7 +230,7 @@ func (imap *IndexMap[K, V]) Remove(keys ...K) {
 	imap.remove(keys...)
 }
 
-// remove is the lock free  version Remove
+// remove is the lock-free version of Remove
 func (imap *IndexMap[K, V]) remove(keys ...K) {
 
 	for i := range keys {
@@ -250,7 +248,7 @@ func (imap *IndexMap[K, V]) remove(keys ...K) {
 	imap.setDirty()
 }
 
-// Remove values into the map,
+// RemoveBy values into the map,
 // also updates the indexes added.
 func (imap *IndexMap[K, V]) RemoveBy(indexName string, keys ...any) {
 	imap.lock.Lock()
@@ -259,7 +257,7 @@ func (imap *IndexMap[K, V]) RemoveBy(indexName string, keys ...any) {
 	imap.removeBy(indexName, keys...)
 }
 
-// removBy is the lock free verison of RemoveBy
+// removBy is the lock-free version of RemoveBy
 func (imap *IndexMap[K, V]) removeBy(indexName string, keys ...any) {
 	for i := range keys {
 		values := imap.getAllBy(indexName, keys[i])
@@ -293,7 +291,7 @@ func (imap *IndexMap[K, V]) Clear() {
 // stops iteration if fn returns false,
 // no any guarantee to the order.
 // don't use modifying calls to this indexmap while the Range is running
-// that may cause dead locks.
+// that may cause deadlocks.
 func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
@@ -305,9 +303,11 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 	}
 }
 
+// checkSortedForUpdate checks if the sorted slice is dirty and updates it if necessary
+// call only with lock locked for writing
 func (imap *IndexMap[K, V]) checkSortedForUpdate() {
 	if imap.dirty {
-		// reuse he underlying array, slice the slice to zero length
+		// reuse the underlying array, slice the slice to zero length
 		// due to performance
 		imap.sorted = imap.sorted[:0]
 		for _, v := range imap.primaryIndex.inner {
@@ -320,14 +320,14 @@ func (imap *IndexMap[K, V]) checkSortedForUpdate() {
 	}
 }
 
-// Range iterates over all the elements,
+// RangeOrdered iterates over all the elements,
 // stops iteration if fn returns false,
 // guarantee to the order if OrderedFn was set before.
 // don't use modifying calls to this indexmap while the Range is running
-// that may cause dead locks.
+// that may cause deadlocks.
 func (imap *IndexMap[K, V]) RangeOrdered(fn func(key K, value *V) bool) {
-	imap.lock.RLock()
-	defer imap.lock.RUnlock()
+	imap.lock.Lock()
+	defer imap.lock.Unlock()
 	imap.checkSortedForUpdate()
 	for _, v := range imap.sorted {
 		if !fn(imap.PrimaryKey(v), v) {
@@ -389,11 +389,11 @@ func (imap *IndexMap[K, V]) CollectValues() []*V {
 
 // Collect returns all the keys and values.
 func (imap *IndexMap[K, V]) CollectValuesOrdered() []*V {
-	imap.lock.RLock()
-	defer imap.lock.RUnlock()
+	imap.lock.Lock()
+	defer imap.lock.Unlock()
 	imap.checkSortedForUpdate()
 	var (
-		values = make([]*V, 0, imap.Len())
+		values = make([]*V, 0, len(imap.primaryIndex.inner)) // cannot use imap.Len() as it won't be able to acquire RLock
 	)
 	values = append(values, imap.sorted...)
 	return values
