@@ -38,7 +38,11 @@ func NewIndexMap[K comparable, V any](primaryIndex *PrimaryIndex[K, V]) *IndexMa
 // This sort is not guaranteed to be stable. cmp(a, b) should return a negative
 // number when a < b, a positive number when a > b and zero when a == b.
 func (imap *IndexMap[K, V]) SetCmpFn(cmp func(value1, Value2 *V) int) {
+	imap.lock.Lock()
+	defer imap.lock.Unlock()
+
 	imap.cmp = cmp
+	imap.setDirty()
 }
 
 func (imap *IndexMap[K, V]) setDirty() {
@@ -305,6 +309,10 @@ func (imap *IndexMap[K, V]) Range(fn func(key K, value *V) bool) {
 	}
 }
 
+// checkSortedForUpdate rebuilds the sorted view if the map was modified since
+// it was built last.
+// It writes to imap.sorted and imap.dirty, so the caller must hold the write
+// lock, not the read lock.
 func (imap *IndexMap[K, V]) checkSortedForUpdate() {
 	if imap.dirty {
 		// reuse he underlying array, slice the slice to zero length
@@ -320,15 +328,39 @@ func (imap *IndexMap[K, V]) checkSortedForUpdate() {
 	}
 }
 
+// ensureSorted brings the sorted view up to date, taking the write lock only
+// when there is something to rebuild.
+// Sorting lazily under a read lock would let concurrent ordered reads write
+// imap.sorted at the same time, so the rebuild is done under the write lock.
+func (imap *IndexMap[K, V]) ensureSorted() {
+	imap.lock.RLock()
+	dirty := imap.dirty
+	imap.lock.RUnlock()
+
+	if !dirty {
+		return
+	}
+
+	imap.lock.Lock()
+	defer imap.lock.Unlock()
+
+	// another goroutine may have rebuilt the view in the meantime,
+	// checkSortedForUpdate checks the flag again
+	imap.checkSortedForUpdate()
+}
+
 // Range iterates over all the elements,
 // stops iteration if fn returns false,
 // guarantee to the order if OrderedFn was set before.
 // don't use modifying calls to this indexmap while the Range is running
 // that may cause dead locks.
 func (imap *IndexMap[K, V]) RangeOrdered(fn func(key K, value *V) bool) {
+	imap.ensureSorted()
+
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
-	imap.checkSortedForUpdate()
+	// the read lock keeps the sorted view from being rebuilt underneath us,
+	// even if another goroutine marked the map dirty in between
 	for _, v := range imap.sorted {
 		if !fn(imap.PrimaryKey(v), v) {
 			return
@@ -363,7 +395,7 @@ func (imap *IndexMap[K, V]) CollectKeys() []K {
 	defer imap.lock.RUnlock()
 
 	var (
-		keys = make([]K, 0, imap.Len())
+		keys = make([]K, 0, imap.lenLocked())
 	)
 	for k := range imap.primaryIndex.inner {
 		keys = append(keys, k)
@@ -378,7 +410,7 @@ func (imap *IndexMap[K, V]) CollectValues() []*V {
 	defer imap.lock.RUnlock()
 
 	var (
-		values = make([]*V, 0, imap.Len())
+		values = make([]*V, 0, imap.lenLocked())
 	)
 	for _, v := range imap.primaryIndex.inner {
 
@@ -389,11 +421,13 @@ func (imap *IndexMap[K, V]) CollectValues() []*V {
 
 // Collect returns all the keys and values.
 func (imap *IndexMap[K, V]) CollectValuesOrdered() []*V {
+	imap.ensureSorted()
+
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
-	imap.checkSortedForUpdate()
+
 	var (
-		values = make([]*V, 0, imap.Len())
+		values = make([]*V, 0, len(imap.sorted))
 	)
 	values = append(values, imap.sorted...)
 	return values
@@ -405,8 +439,8 @@ func (imap *IndexMap[K, V]) Collect() ([]K, []*V) {
 	defer imap.lock.RUnlock()
 
 	var (
-		keys   = make([]K, 0, imap.Len())
-		values = make([]*V, 0, imap.Len())
+		keys   = make([]K, 0, imap.lenLocked())
+		values = make([]*V, 0, imap.lenLocked())
 	)
 	for k, v := range imap.primaryIndex.inner {
 		keys = append(keys, k)
@@ -438,6 +472,13 @@ func (imap *IndexMap[K, V]) Len() int {
 	imap.lock.RLock()
 	defer imap.lock.RUnlock()
 
+	return imap.lenLocked()
+}
+
+// lenLocked is the lock free version of Len.
+// Taking the read lock recursively would deadlock as soon as a writer is
+// waiting in between, so callers that already hold a lock use this one.
+func (imap *IndexMap[K, V]) lenLocked() int {
 	return len(imap.primaryIndex.inner)
 }
 
